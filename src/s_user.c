@@ -1535,7 +1535,7 @@ send_msg_error(aClient *sptr, char *parv[], char *nick, int ret, aChannel *chptr
     }
     else if(ret == ERR_NEEDREGGEDNICK)
         sendto_one(sptr, err_str(ERR_NEEDREGGEDNICK), me.name,
-                   parv[0], nick, "speak in", aliastab[AII_NS].nick,
+                   parv[0], nick, "speak in", chptr->chname, aliastab[AII_NS].nick,
                    aliastab[AII_NS].server, NS_Register_URL);
     else if(ret == ERR_MAXMSGSENT)
         sendto_one(sptr, err_str(ERR_MAXMSGSENT), me.name,
@@ -1543,6 +1543,24 @@ send_msg_error(aClient *sptr, char *parv[], char *nick, int ret, aChannel *chptr
     else
         sendto_one(sptr, err_str(ERR_CANNOTSENDTOCHAN), me.name,
                    parv[0], nick);
+}
+
+/*
+ * Check if the recipient we are sending to is one of the services or stats addresses.
+ */
+static int is_aliastab_recipient(char *recipient)
+{
+    AliasInfo *ai;
+    char full_target[NICKLEN + HOSTLEN + 2];
+
+    for(ai = aliastab; ai->nick; ai++)
+    {
+        ircsprintf(full_target, "%s@%s", ai->nick, ai->server);
+        if(!mycmp(recipient, full_target))
+            return 1;
+    }
+
+    return 0;
 }
 
 /*
@@ -1589,12 +1607,12 @@ m_message(aClient *cptr, aClient *sptr, int parc, char *parv[], int notice)
 
     if (ismine)
     {
-        /* if squelched or spamming, allow only messages to self */
+        /* if squelched or spamming, allow only messages to self or to the services and stats addresses */
         if ((IsSquelch(sptr)
 #if defined(ANTI_SPAMBOT) && !defined(ANTI_SPAMBOT_WARN_ONLY)
             || (sptr->join_leave_count >= MAX_JOIN_LEAVE_COUNT)
 #endif
-            ) && mycmp(parv[0], parv[1]))
+            ) && mycmp(parv[0], parv[1]) && !is_aliastab_recipient(parv[1]))
         {
             if (IsWSquelch(sptr) && !notice)
                 sendto_one(sptr, ":%s NOTICE %s :You are currently squelched."
@@ -2133,8 +2151,8 @@ m_whois(aClient *cptr, aClient *sptr, int parc, char *parv[])
                        name, user->real_oper_username, user->real_oper_host,
                        user->real_oper_ip);
 #endif
-#endif          
-        mlen = strlen(me.name) + strlen(parv[0]) + 6 + strlen(name);
+#endif
+        mlen = strlen(me.name) + strlen(parv[0]) + 9 + strlen(name);
         for (len = 0, *buf = '\0', lp = user->channel; lp; lp = lp->next)
         {
             chptr = lp->value.chptr;
@@ -2143,8 +2161,7 @@ m_whois(aClient *cptr, aClient *sptr, int parc, char *parv[])
             {
                 if (len + strlen(chptr->chname) > (size_t) BUFSIZE - 4 - mlen)
                 {
-                    sendto_one(sptr, ":%s %d %s %s :%s", me.name, 
-                               RPL_WHOISCHANNELS, parv[0], name, buf);
+                    sendto_one(sptr, rpl_str(RPL_WHOISCHANNELS), me.name, parv[0], name, buf);
                     *buf = '\0';
                     len = 0;
                 }
